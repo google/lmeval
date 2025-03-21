@@ -102,14 +102,17 @@ class FileType(Enum):
 
 # [Tasks]
 class TaskType(Enum):
-  boolean = "boolean"
-  multiple_choices = "multiple_choices"
-  multiple_choices_multiple_answers = "multiple_choices_multiple_answers"
-  text_generation = "text_generation"
-  image_generation = "image_generation"
-  python_generation = "python_generation"
+    boolean = "boolean"
+    multiple_choices = "multiple_choices"
+    multiple_choices_multiple_answers = "multiple_choices_multiple_answers"
+    text_generation = "text_generation"
+    completion = "completion"
+    grouped_completion = "grouped_completion"
 
-  red_text_generation = "red_text_generation"
+    image_generation = "image_generation"
+    python_generation = "python_generation"
+
+    red_text_generation = "red_text_generation"
 
 
 class TaskLevel(Enum):

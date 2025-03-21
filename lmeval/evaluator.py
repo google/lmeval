@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from enum import Enum
+import json
 from pydantic import Field, BaseModel
 from tabulate import tabulate
 from collections import defaultdict, deque
@@ -23,18 +24,19 @@ import functools
 import lmeval
 import threading
 import time
+import traceback
 
 from lmeval import utils
 from lmeval.logger import log
 from lmeval.models import LMAnswer, LMModel
 from lmeval.scorers import PuntDetector
-from lmeval.question import Question
+from lmeval.question import GroupedQuestion, Question
 from lmeval.task import Task
-from lmeval.benchmark import Benchmark, Category, load_benchmark
+from lmeval.benchmark import Benchmark, load_benchmark
 from lmeval.prompts import Prompt
-from lmeval.custom_model import CustomModel
 from lmeval.callback import Callback
-from lmeval.enums import Modality
+from lmeval.enums import TaskType
+from lmeval.evaluation_tasks import CompletionEvalTask, GroupedCompletionEvalTask, EvalTask
 
 # generic type
 P = TypeVar('P', bound='Prompt')
@@ -44,29 +46,6 @@ M = TypeVar('M', bound='LMModel')
 class AnswerStatus(Enum):
     existing = 0
     planned = 1
-
-class EvalTask(CustomModel): #  Generic[M, P]):
-    benchmark_name: str  # needed to propagate it to the models
-    question: Question
-    category: Category
-    task: Task
-    lm_model: LMModel  # model is reserved by pydantic, using lm_model
-    prompt: Prompt
-    instanciated_prompt: str = Field(default="")
-    punt_detector: Optional[PuntDetector] = None
-
-
-    # tracking evaluation status
-    lm_answer: Optional[LMAnswer] = None
-
-    # those are shorthand for the answer status that are copied from LMAnswer
-    score: float = Field(default=0.0)
-    punted: bool = Field(default=False)
-    error: bool = Field(default=False)
-
-    def __str__(self) -> str:
-        return f"{self.lm_model.version_string}:{self.prompt.name} {self.category.name} / {self.task.name} / {self.question.id}"
-
 
 class Evaluator():
     """
@@ -164,21 +143,38 @@ class Evaluator():
                             # check if the answer already exists
                             if PROMT_VER in question.lm_answers and MODEL_VER in question.lm_answers[
                                     PROMT_VER]:
+                                # Already existing results
                                 stats[category.name][task.name][PROMT_VER][
-                                    MODEL_VER][AnswerStatus.planned] += 1
+                                    MODEL_VER][AnswerStatus.existing] += 1
                                 continue
 
                             # create evaluation task and queue it
-                            evaltask = EvalTask(
-                                benchmark_name=self.benchmark.name,
-                                question=question,
-                                category=category,
-                                task=task,
-                                lm_model=model,
-                                lm_answer=None,
-                                prompt=prompt,
-                                instanciated_prompt=instanciated_prompt,
-                                punt_detector=punt_detector)
+                            if task.type == TaskType.completion.value:
+                                evaltask = CompletionEvalTask(
+                                    benchmark_name=self.benchmark.name,
+                                    question=question,
+                                    category=category,
+                                    task=task,
+                                    lm_model=model,
+                                    lm_answer=None,
+                                    prompt=prompt,
+                                    messages=question.messages,
+                                    tools=question.tools,
+                                    punt_detector=punt_detector,
+                                )
+                            elif task.type == TaskType.grouped_completion.value:
+                                assert isinstance(question, GroupedQuestion), "Grouped completion tasks should have a GroupedQuestion"
+
+                                evaltask = GroupedCompletionEvalTask(
+                                    benchmark_name=self.benchmark.name,
+                                    question=question,
+                                    category=category,
+                                    task=task,
+                                    lm_model=model,
+                                    lm_answer=None,
+                                    prompt=prompt,
+                                    punt_detector=punt_detector,
+                                )
 
                             # allows to cap the number of evaluations per task
                             if stats[category.name][
@@ -268,26 +264,14 @@ class Evaluator():
                 f"exec model: {model_name}, prompts: {len(etasks)}, medias: {len(etasks[0].question.medias)}"
             )
             num_executed = 0
-            prompts = []
-            medias = []
             model = etasks[0].lm_model
-            for etask in etasks:
-                t = self.prepare_task(etask)
-                prompts.append(t.instanciated_prompt)
-                # normalize medias
-                mds = t.question.medias if t.question.medias else []
-                mds = mds if isinstance(mds, list) else [mds]
-                medias.append(mds)
-            log.debug(
-                f"model: {model.name}, prompts: {len(prompts)}, medias: {len(medias)}"
-            )
+            etasks = [self.prepare_task(etask) for etask in etasks]
 
             score = 0.0  # live stats
             count = 0
             error = 0
             punt = 0
-            for index, answer in model.batch_generate_text(prompts=prompts,
-                                                           medias=medias):
+            for index, answer in model.batch_execute(tasks=etasks):
                 assert answer is not None, f"Answer generation failed for model {model_name}"
                 log.debug(f"model:index: {model_name}, {index}")
                 log.debug(f"model:answer: {answer.answer}")
@@ -405,7 +389,20 @@ class Evaluator():
     @staticmethod
     def prepare_task(etask: EvalTask) -> EvalTask:
         """Prepares the prompt and other data for a given eval task."""
-        if etask.instanciated_prompt:
+        if isinstance(etask, GroupedCompletionEvalTask):
+            return etask
+        elif isinstance(etask, CompletionEvalTask):
+            # Prepare messages for CompletionEvalTask
+            if not etask.messages or len(etask.messages) == 0:
+                etask.messages = [
+                    {
+                        "role": "user",
+                        "content": etask.prompt.render(etask.question, etask.task),
+                    }
+                ]
+            instanciated_prompt = etask.messages
+            etask.instanciated_prompt = json.dumps(instanciated_prompt)
+        elif etask.instanciated_prompt:
             instanciated_prompt = etask.instanciated_prompt
         else:
             instanciated_prompt = etask.prompt.render(etask.question,
@@ -429,8 +426,20 @@ class Evaluator():
     @staticmethod
     def generate_answer(etask: EvalTask) -> EvalTask:
         """Generate an answer for a given eval task"""
-
-        if etask.instanciated_prompt:
+        if isinstance(etask, GroupedCompletionEvalTask):
+            return etask
+        elif isinstance(etask, CompletionEvalTask):
+            # Prepare messages for CompletionEvalTask
+            if not etask.messages or len(etask.messages) == 0:
+                etask.messages = [
+                    {
+                        "role": "user",
+                        "content": etask.prompt.render(etask.question, etask.task),
+                    }
+                ]
+            instanciated_prompt = etask.messages
+            etask.instanciated_prompt = json.dumps(instanciated_prompt)
+        elif etask.instanciated_prompt:
             instanciated_prompt = etask.instanciated_prompt
         else:
             instanciated_prompt = etask.prompt.render(etask.question,
@@ -450,8 +459,13 @@ class Evaluator():
                         media.original_path).read_bytes()
 
         # generate model answer
-        model_answer: LMAnswer = etask.lm_model.generate_text(
-            instanciated_prompt, medias=etask.question.medias)
+        if isinstance(etask, CompletionEvalTask):
+            print(f"tools here: {etask.tools}")
+            model_answer: LMAnswer = etask.lm_model.complete(etask.messages, tools=etask.tools)
+        else:
+            model_answer: LMAnswer = etask.lm_model.generate_text(
+                instanciated_prompt, medias=etask.question.medias)
+
         log.debug(f"model:answer: {model_answer.answer}")
 
         etask.error = model_answer.iserror
@@ -476,11 +490,18 @@ class Evaluator():
         assert etask.lm_answer is not None, "Cannot score an answer that has not been generated"
         assert not etask.lm_answer.ispunting, "Cannot score a punted answer"
 
-        score = etask.task.scorer.score(etask.lm_answer, etask.question,
-                                        etask.task)
-        etask.lm_answer.score = score
-        etask.score = score
-        log.debug(f"answer score: {score}")
+        try:
+            score = etask.task.scorer.score(etask.lm_answer, etask.question,
+                                            etask.task)
+            etask.lm_answer.score = score
+            etask.score = score
+            log.debug(f"answer score: {score}")
+        except Exception as e:
+            log.error(f"error scoring answer: {e}")
+            traceback.print_exc()
+            etask.lm_answer.iserror = True
+            etask.error = True
+
         for scorer in etask.task.additional_scorers:
             score = scorer.score(etask.lm_answer, etask.question, etask.task)
             etask.lm_answer.additional_scores[scorer.type] = score

@@ -14,7 +14,11 @@
 
 from collections.abc import Generator
 import time
+import uuid
+import json
+import traceback
 from typing import Optional, Tuple
+import litellm
 from litellm import completion, completion_cost, batch_completion
 from litellm import ModelResponse, CustomStreamWrapper
 
@@ -23,6 +27,14 @@ from .lmmodel import LMModel
 from .lmmodel import LMAnswer
 from ..media import Media
 from ..logger import log
+from ..question import GroupedQuestion
+
+
+def update_generation_kwargs(generation_kwargs: dict, update: dict) -> dict:
+    for key, value in update.items():
+        if key not in generation_kwargs:
+            generation_kwargs[key] = value
+    return generation_kwargs
 
 
 class LiteLLMModel(LMModel):
@@ -91,7 +103,7 @@ class LiteLLMModel(LMModel):
             batch_responses = [None for _ in prompts]
 
         for i, resp in enumerate(batch_responses):
-            answer = self._make_answer(resp, prompts[i])
+            answer = self._make_answer(resp, prompts[i])[0]
             yield i, answer
 
     def generate_text(self,
@@ -113,9 +125,70 @@ class LiteLLMModel(LMModel):
         except Exception as e:
             resp = None
             print("Can't get response from model:", e)
+            print(traceback.format_exc())
 
-        answer = self._make_answer(resp, prompt)
+        answer = self._make_answer(resp, prompt)[0]
         return answer
+
+    def complete(
+        self,
+        messages: list[dict],
+        temperature: float = 0.0,
+        completions: int = 1,
+        max_tokens: int = 4096,
+        **generation_kwargs,
+    ) -> LMAnswer | list[LMAnswer]:
+        # FIXME: finish multi-completion support
+        try:
+            arguments = dict(
+                model=self.runtime_vars["litellm_version_string"],
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                completions=completions,
+                **generation_kwargs,
+            )
+            resp = self._completion(**arguments)
+
+        except Exception as e:
+            resp = None
+            print("Can't get response from model:", traceback.format_exc())
+
+        answer = self._make_answer(resp)
+        return answer
+
+    def _make_grouped_answer(self, answers: list[LMAnswer]) -> LMAnswer:
+        is_error = any([a.iserror for a in answers])
+        error_reason = "".join([a.error_reason for a in answers])
+        total_tokens = sum([a.steps[0].total_tokens for a in answers])
+        completion_tokens = sum([a.steps[0].completion_tokens for a in answers])
+        total_time = sum([a.steps[0].execution_time for a in answers])
+        cost = sum([a.steps[0].cost for a in answers])
+        answer_id = str(uuid.uuid4())
+        print(f"Length of answers: {len(answers)}")
+        grouped_answer = self._build_answer(text="",
+                                    generation_time=total_time,
+                                    iserror=is_error,
+                                    error_reason=error_reason,
+                                    total_tokens=total_tokens,
+                                    completion_tokens=completion_tokens,
+                                    cost=cost,
+                                    id=answer_id)
+        grouped_answer.answer_set = answers
+        return grouped_answer
+
+    def multi_complete(self, grouped_question: GroupedQuestion, temperature: float = 0.0,
+                       completions: int = 1, max_tokens: int = 4096, **generation_kwargs) -> LMAnswer:
+        n_completions = grouped_question.metadata.get('n_completions', 1)
+        temperature = grouped_question.metadata.get('temperature', None)
+        grouped_answers = []
+
+        for question in grouped_question.question_set:
+            answer = self.complete(question.messages, temperature, n_completions, max_tokens, **generation_kwargs)
+            grouped_answers.append(answer)
+        
+
+        return self._make_grouped_answer(grouped_answers)
 
     def _make_messages(
             self,
@@ -169,10 +242,20 @@ class LiteLLMModel(LMModel):
         if isinstance(resp, ModelResponse):
             response = resp
             response_id = resp.id
-
+            
             log.debug("response: %s", response)
             try:
-                raw_response = response.choices[0].message.content
+                answer_contents = [c.message.content for c in response.choices]
+                tool_calls = [c.message.tool_calls for c in response.choices]
+
+                if all(r is None and tc is None for r, tc in zip(answer_contents, tool_calls)):
+                    raise ValueError("No response from model")
+                
+                for answer in answer_contents:
+                    if answer is not None:
+                        raw_response = answer
+                        break
+
             except Exception as e:
                 try:
                     iserror = True
@@ -204,7 +287,7 @@ class LiteLLMModel(LMModel):
             else:
                 iserror = True
                 error_reason = f'{resp}'
-                raw_response = ''
+
         elif isinstance(resp, Exception):
             iserror = True
             error_reason = repr(resp)
@@ -226,6 +309,8 @@ class LiteLLMModel(LMModel):
                                     isunsafe=self.isunsafe,
                                     prompt=prompt,
                                     id=response_id)
+        if isinstance(resp, ModelResponse):
+            answer.raw_response = resp.model_dump()
         return answer
 
     def _batch_completion(self,
@@ -233,9 +318,20 @@ class LiteLLMModel(LMModel):
                           messages_batch: list[dict],
                           temperature: float = 0.0,
                           max_tokens: int = 4096,
-                          completions: int = 1) -> list[ModelResponse]:
+                          completions: int = 1,
+                          **generation_kwargs) -> list[ModelResponse]:
 
         #! we need to isolate the batch completion to allow various implementation to pass additonals parameters
+        if "generation_kwargs" in self.runtime_vars:
+            # do not override the generation_kwargs passed as parameter
+            generation_kwargs = update_generation_kwargs(
+                generation_kwargs, self.runtime_vars["generation_kwargs"]
+            )
+
+        if "supports_system_prompt" in self.runtime_vars and not self.runtime_vars["supports_system_prompt"]:
+            messages_batch = [self._replace_system_messages(messages) for messages in messages_batch]
+            messages_batch = [self._merge_messages_by_role(messages) for messages in messages_batch]
+
         batch_responses = batch_completion(
             model=model,
             messages=messages_batch,
@@ -245,7 +341,8 @@ class LiteLLMModel(LMModel):
             api_key=self.runtime_vars.get('api_key'),
             base_url=self.runtime_vars.get('base_url'),
             max_workers=self.runtime_vars.get('max_workers'),
-            extra_headers=self._make_headers())
+            extra_headers=self._make_headers(),
+            **generation_kwargs)
         return batch_responses
 
     def _completion(self,
@@ -253,8 +350,28 @@ class LiteLLMModel(LMModel):
                     messages: list[dict],
                     temperature: float = 0.0,
                     max_tokens: int = 4096,
-                    completions: int = 1) -> ModelResponse:
-        #! we need to isolate the batch completion to allow various implementation to pass additonals parameters
+                    completions: int = 1,
+                    **generation_kwargs) -> ModelResponse:
+        if "generation_kwargs" in self.runtime_vars:
+            # do not override the generation_kwargs passed as parameter
+            generation_kwargs = update_generation_kwargs(
+                generation_kwargs, self.runtime_vars["generation_kwargs"]
+            )
+        
+        use_provider_tools_format = False
+        if "tools" in generation_kwargs and generation_kwargs["tools"] is not None:
+            assert len(generation_kwargs["tools"]) > 0, "tools should not be empty"
+            use_provider_tools_format = True
+
+        if not litellm.supports_function_calling(model) and use_provider_tools_format:
+            litellm.add_function_to_prompt = True
+            tools_definition = generation_kwargs.pop("tools")
+            generation_kwargs["functions_unsupported_model"] = tools_definition
+            
+        if "supports_system_prompt" in self.runtime_vars and not self.runtime_vars["supports_system_prompt"]:
+            messages = self._replace_system_messages(messages)
+            messages = self._merge_messages_by_role(messages)
+
         resp = completion(model=model,
                           messages=messages,
                           temperature=temperature,
@@ -262,8 +379,30 @@ class LiteLLMModel(LMModel):
                           n=completions,
                           api_key=self.runtime_vars.get('api_key'),
                           base_url=self.runtime_vars.get('base_url'),
-                          extra_headers=self._make_headers())
+                          extra_headers=self._make_headers(),
+                          **generation_kwargs)
         return resp
+
+    def _replace_system_messages(self, messages: list[dict]) -> list[dict]:
+        for m in messages:
+            if m["role"] == "system":
+                m["role"] = "user"
+        return messages
+
+    def _merge_messages_by_role(self, messages: list[dict]) -> list[dict]:
+        current_role = messages[0]["role"]
+        current_content = messages[0]["content"]
+
+        messages_merged = []
+        for m in messages:
+            if m["role"] == current_role:
+                current_content += "\n\n" + m["content"]
+            else:
+                messages_merged.append({"role": current_role, "content": current_content})
+                current_role = m["role"]
+                current_content = m["content"]
+        messages_merged.append({"role": current_role, "content": current_content})
+        return messages_merged
 
     def _make_headers(self) -> dict[str, str]:
         headers = {

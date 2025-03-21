@@ -15,12 +15,12 @@
 from .task import Task
 from .benchmark import Benchmark, Category, load_benchmark, list_benchmarks
 from .benchmark import get_benchmark_fileinfo, list_benchmark_fileinfo
-from .question import Question, QuestionSource
+from .question import Question, QuestionSource, GroupedQuestion
 from .media import Media
 from .models import LMModel, LMAnswer
 from .enums import TaskType, TaskLevel, FileType, Modality, ScorerType
 from .evaluator import Evaluator
-from .scorers import get_scorer, list_scorers
+from .scorers import get_scorer, list_scorers, add_scorer, update_scorer
 from .logger import set_log_level
 
 __all__ = [
@@ -41,6 +41,7 @@ __all__ = [
 
     # questions
     "Question",
+    "GroupedQuestion",
     "QuestionSource",
 
     # media
@@ -53,6 +54,8 @@ __all__ = [
     # scorers
     "get_scorer",
     "list_scorers",
+    "add_scorer",
+    "update_scorer",
     "ScorerType",
 
     # enums

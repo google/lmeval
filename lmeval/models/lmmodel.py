@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional, Tuple
 from pydantic import Field
 import base64
 from ..custom_model import CustomModel
-from ..enums import Modality, ScorerType, StepType, MultiShotStrategy
+from ..enums import Modality, ScorerType, StepType, MultiShotStrategy, TaskType
 from ..media import Media
 
 
@@ -50,6 +50,14 @@ class LMModel(CustomModel):
                        prompt: str,
                        medias: Optional[list[Media]] = None,
                        temperature: float = 0.0,
+                       completions: int = 1) -> LMAnswer:
+        raise NotImplementedError
+
+    def complete(self, messages: list[dict], temperature: float = 0.0,
+                 completions: int = 1) -> LMAnswer:
+        raise NotImplementedError
+
+    def multi_complete(self, question: "GroupedQuestion", temperature: float = 0.0,
                        completions: int = 1) -> LMAnswer:
         raise NotImplementedError
 
@@ -120,6 +128,20 @@ class LMModel(CustomModel):
         "convert an image to base64 to send to the model"
         return base64.b64encode(raw_img).decode('utf-8')
 
+    def batch_execute(self, tasks: list["EvalTask"], temperature: float = 0.0,
+                      completions: int = 1) -> Generator[Tuple[int, LMAnswer], None, None]:
+        """ Execute a batch of prompts in parallel."""
+        for i, etask in enumerate(tasks):
+            if etask.task.type == TaskType.completion.value:
+                yield i, self.complete(etask.messages, temperature, completions, tools=etask.question.tools)
+            elif etask.task.type == TaskType.grouped_completion.value:
+                yield i, self.multi_complete(etask.question, temperature=temperature, completions=10)
+            else:
+                # normalize medias
+                mds = etask.question.medias if etask.question.medias else []
+                mds = mds if isinstance(mds, list) else [mds]
+                yield i, self.generate_text(etask.instanciated_prompt, mds, temperature, completions)
+
     def batch_generate_text(
             self,
             prompts: list[str],
@@ -188,7 +210,8 @@ class LMAnswer(CustomModel):
 
     # scorer
     score: float = Field(default=0.0)
-    additional_scores: Dict[ScorerType, float] = Field(default={})
+    additional_scores: Dict[ScorerType | str, float] = Field(default={})
+    score_raw_data: Dict[str, Any] = Field(default={})
 
     # executions steps
     steps: list[Step] = Field(default=[])
@@ -196,11 +219,18 @@ class LMAnswer(CustomModel):
     # model used
     model: LMModel
 
+    # set of answers when grouped completion is used
+    answer_set: list[LMAnswer] = Field(default_factory=list)
+
     text_prompt: str = Field(default='',
                              description="record the actual text prompt used")
 
     additional_data: dict = Field(default_factory=dict,
                                   description="Additional data that are question dependent")
 
+    raw_response: dict = Field(default={},
+                               description="Raw response from the model")
+
     def __str__(self) -> str:
         return str(f"{self.model.name}: {self.answer}")
+    

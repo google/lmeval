@@ -55,7 +55,7 @@ _SCORERS = {
     ScorerType.llm_rater: LLMRater,
 }
 
-def get_scorer(scorer_type: ScorerType) -> Scorer:
+def get_scorer(scorer_type: ScorerType | str) -> Scorer:
     "get scorer object for a given scorer type"
     if scorer_type in _SCORERS:
         return _SCORERS[scorer_type]()
@@ -69,3 +69,15 @@ def list_scorers():
         si = s()
         rows.append([si.name, si.__class__.__name__ , si.modality.name, si.description])
     print(tabulate(rows, headers=["Name", "Class Name", "Modality", "Description"]))
+
+def add_scorer(t: ScorerType | str, scorer: Scorer):
+    "add a custom scorer"
+    if t in _SCORERS:
+        raise ValueError(f"Scorer {t} already exists")
+    _SCORERS[t] = scorer
+
+def update_scorer(t: ScorerType | str, scorer: Scorer):
+    "update a custom scorer"
+    if t not in _SCORERS:
+        raise ValueError(f"Scorer {t} does not exist")
+    _SCORERS[t] = scorer

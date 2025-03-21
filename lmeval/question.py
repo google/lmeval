@@ -15,7 +15,7 @@
 from pydantic import Field
 from pathlib import Path
 from hashlib import blake2b
-from typing import List, Dict
+from typing import Any, List, Dict
 
 from collections import defaultdict
 from .custom_model import CustomModel
@@ -36,11 +36,11 @@ class QuestionSource(CustomModel):
 class Question(CustomModel):
     # we need it for (de)serialization - automated added by Task.add()
     id: int = Field(default=-1)
-    question: str
+    question: str | None = Field(default=None)
     language: str = Field(default="en")
 
     # answer
-    answer: str
+    answer: str | None = Field(default=None)
     # additional answers e.g. for multiple choice questions
     additional_answers: List[str] = Field(default_factory=list)
 
@@ -65,6 +65,14 @@ class Question(CustomModel):
     # question source and extra media
     source: QuestionSource = Field(default=None)
     medias: List[Media] = Field(default_factory=list)
+
+    # messages to be sent to the llm model
+    messages: List[dict] = Field(default_factory=list)
+    # metadata for the question and for the evaluation
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    # tools to be used by the llm model
+    tools: List[dict] | None = None
 
     # can't use model_ : it is reserved for pydantic
     # lm_answers[prompt_version][model_version, LMAnswer]
@@ -112,3 +120,7 @@ class Question(CustomModel):
         h = blake2b(digest_size=digest_size)
         h.update(path.read_bytes())
         return h.hexdigest()
+    
+class GroupedQuestion(Question):
+    metadata: Dict[str, Any]
+    question_set: List[Question] 

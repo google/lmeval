@@ -18,7 +18,7 @@ from pydantic import Field
 from typing import List
 
 from lmeval.custom_model import CustomModel
-from lmeval.question import Question
+from lmeval.question import Question, GroupedQuestion
 from lmeval.enums import TaskType, TaskLevel, MultiShotStrategy, Modality
 from lmeval.scorers import Scorer, ContainTextInsensitive, ContainAnswerLetterInsensitive
 from lmeval.scorers import BooleanAnswerScorer
@@ -40,7 +40,7 @@ class Task(CustomModel):
 
     # questions
     # Potentially exclude if scalability and write custom code
-    questions: List[Question] = Field(default_factory=list)
+    questions: List[Question | GroupedQuestion] = Field(default_factory=list)
 
     def add_question(self, question: Question) -> int:
         """Add a question to the task

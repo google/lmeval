@@ -24,7 +24,7 @@ from ..enums import ScorerType, Modality
 class Scorer(CustomModel):
     name: str = Field(default='')
     description: str = Field(default='')
-    type: ScorerType  # the enum type of the scorer used for serialization
+    type: ScorerType | str  # the enum type of the scorer used for serialization
     modality: Modality  # what type of answer this scorer is for e.g text or multimodal
 
     # optional fields used only by specific scorers

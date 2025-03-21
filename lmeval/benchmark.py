@@ -490,8 +490,12 @@ def load_benchmark(path: str, archive = None, use_tempfile: bool | None = None) 
     media_to_load = []
     for category in benchmark.categories:
         for task in category.tasks:
-            scorer_name = str(task.scorer.type)
-            stype = ScorerType[scorer_name]
+            if isinstance(task.scorer.type, ScorerType):
+                scorer_name = str(task.scorer.type)
+                stype = ScorerType[scorer_name]
+            else:
+                # load customized scorer (not included in the ScoreType enum)
+                stype = str(task.scorer.type)
             task.scorer = get_scorer(stype)
 
             # pydantic have hard time serializing enums

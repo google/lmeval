@@ -14,7 +14,7 @@
 
 from .scorer import Scorer
 from .llm_rater import LLMRater
-from .loader import get_scorer, list_scorers
+from .loader import get_scorer, list_scorers, add_scorer, update_scorer
 from .dummy_scorer import Always0Scorer, Always1Scorer
 from .boolean_answer import BooleanAnswerScorer
 from .exact_text import TextExactSensitive, TextExactInsensitive
@@ -25,6 +25,8 @@ from .punt_detector import PuntDetector
 
 __all__ = [
     "Scorer",
+    "add_scorer",
+    "update_scorer",
     "get_scorer",
     "list_scorers",
     "Always0Scorer",
