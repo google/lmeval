@@ -255,19 +255,19 @@ class LiteLLMModel(LMModel):
                     })
                 elif media.filetype == FileType.pdf.value:
                     pdf_base64 = self._blob2base64(media.content)
-                    if self.publisher in ("openai", "deepseek", "microsoft", "qwen", "anthropic-openrouter"):  # OpenAI uses a different API format for PDF
+                    if self.publisher in ("gemini", "anthropic"):  # VertexAi uses a different API format for PDF
+                        content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:application/pdf;base64,{pdf_base64}",
+                            }
+                        })
+                    else:
                         content.append({
                             "type": "file",
                             "file": {
                                 "filename": "file.pdf",
                                 "file_data": f"data:application/pdf;base64,{pdf_base64}"
-                            }
-                        })
-                    else:
-                        content.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:application/pdf;base64,{pdf_base64}",
                             }
                         })
             # text prompt
