@@ -255,7 +255,7 @@ class LiteLLMModel(LMModel):
                     })
                 elif media.filetype == FileType.pdf.value:
                     pdf_base64 = self._blob2base64(media.content)
-                    if self.publisher in ("openai", "deepseek", "microsoft", "qwen"):  # OpenAI uses a different API format for PDF
+                    if self.publisher in ("openai", "deepseek", "microsoft", "qwen", "anthropic-openrouter"):  # OpenAI uses a different API format for PDF
                         content.append({
                             "type": "file",
                             "file": {
