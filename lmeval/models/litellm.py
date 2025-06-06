@@ -113,7 +113,9 @@ class LiteLLMModel(LMModel):
             medias: list[list[Media]],
             temperature: float = 0,
             max_tokens: int = 4096,
-            completions: int = 1
+            completions: int = 1,
+            top_p: float = 0.0,
+            seed: int = 0
     ) -> Generator[Tuple[int, LMAnswer], None, None]:
         model = self.runtime_vars['litellm_version_string']
         assert len(prompts) == len(
@@ -125,7 +127,7 @@ class LiteLLMModel(LMModel):
         try:
             batch_responses = self._batch_completion(model, messages_batch,
                                                      temperature, max_tokens,
-                                                     completions)
+                                                     completions, top_p, seed)
         except:
             batch_responses = [None for _ in prompts]
 
@@ -138,7 +140,9 @@ class LiteLLMModel(LMModel):
                       medias: list[Media] | Media | None = None,
                       temperature: float = 0.0,
                       max_tokens: int = 4096,
-                      completions: int = 1) -> LMAnswer:
+                      completions: int = 1,
+                      top_p: float = 0.0,
+                      seed: int = 0) -> LMAnswer:
         # FIXME: finish multi-completion support
         model = self.runtime_vars['litellm_version_string']
         messages = self._make_messages(prompt, medias)
@@ -148,7 +152,9 @@ class LiteLLMModel(LMModel):
                                     messages=messages,
                                     temperature=temperature,
                                     max_tokens=max_tokens,
-                                    completions=completions)
+                                    completions=completions,
+                                    top_p=top_p,
+                                    seed=seed)
         except Exception as e:
             resp = None
             print("Can't get response from model:", e)
