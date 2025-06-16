@@ -61,7 +61,9 @@ class MockModel(LMModel):
       medias: List[Media] | Media = [],
       temperature: float | None = 0.0,
       max_tokens: int = 4096,
-      completions: int = 1) -> LMAnswer:
+      completions: int = 1,
+      top_p: float = 0.0,
+      seed: int = 0) -> LMAnswer:
     # print(f"generate_text: {prompt}")
     id = "mock"
     request_response = self.runtime_vars["request_response"]
@@ -87,10 +89,11 @@ class MockModel(LMModel):
   def batch_generate_text(
       self, prompts: list[str], medias: list[list[Media] | Media] = [],
       temperature: float | None = 0.0, max_tokens:int = 4096,
-      completions: int = 1) -> Generator[Tuple[int, LMAnswer], None, None]:
+      completions: int = 1, top_p: float = 0.0,
+      seed: int = 0) -> Generator[Tuple[int, LMAnswer], None, None]:
     log.info(f"mock-batch_generate_text: {len(prompts)} prompts")
     for i, prompt in enumerate(prompts):
-      yield i, self.generate_text(prompt, medias[i], temperature, completions)
+      yield i, self.generate_text(prompt, medias[i], temperature, completions, top_p, seed)
 
 
 class MockGeminiModel(MockModel):
