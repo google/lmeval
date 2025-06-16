@@ -81,7 +81,9 @@ class GeminiModel(LiteLLMModel):
                     messages: list[dict],
                     temperature: float = 0.0,
                     max_tokens: int = 4096,
-                    completions: int = 1) -> ModelResponse:
+                    completions: int = 1,
+                    top_p: float = 0.0,
+                    seed: int = 0) -> ModelResponse:
         #! we need to isolate the batch completion to allow various implementation to pass additonals parameters
         resp = completion(
             model=model,
@@ -89,6 +91,8 @@ class GeminiModel(LiteLLMModel):
             temperature=temperature,
             max_tokens=max_tokens,
             n=completions,
+            top_p=top_p,
+            seed=seed,
             api_key=self.runtime_vars.get('api_key'),
             # gemini specific
             safety_settings=self.runtime_vars.get('safety_settings'))
@@ -97,13 +101,17 @@ class GeminiModel(LiteLLMModel):
     def _batch_completion(self, model: str, messages_batch: list[dict],
                           temperature: float = 0.0,
                           max_tokens: int = 4096,
-                          completions: int = 1) -> list[ModelResponse]:
+                          completions: int = 1,
+                          top_p: float = 0.0,
+                          seed: int = 0) -> list[ModelResponse]:
         batch_responses = batch_completion(
             model=model,
             messages=messages_batch,
             temperature=temperature,
             max_tokens=max_tokens,
             n=completions,
+            top_p=top_p,
+            seed=seed,
             api_key=self.runtime_vars.get('api_key'),
             # gemini specific
             safety_settings=self.runtime_vars.get('safety_settings')

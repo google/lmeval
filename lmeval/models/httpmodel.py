@@ -95,6 +95,8 @@ class HttpBaseModel(LMModel):
             query: str,
             temperature: float = 0.0,
             max_tokens: int = 4096,
+            top_p: float = 0.0,
+            seed: int = 0,
             extra_dict: Dict[str, Any] | None = None) -> Dict[str, Any]:
         """Make the POST call. Override in subclass as needed.
 
@@ -106,6 +108,8 @@ class HttpBaseModel(LMModel):
             'generation_config': {
                 'temperature': temperature,
                 'max_output_tokens': max_tokens,
+                'seed': seed,
+                'topP': top_p,
                 'candidate_count': 1
             },
             'contents': [{
@@ -210,7 +214,9 @@ class SecLmModel(HttpBaseModel):
                       medias: list[Media] | Media = None,
                       temperature: float = 0.0,
                       max_tokens: int = 4096,
-                      completions: int = 1) -> LMAnswer:
+                      completions: int = 1,
+                      top_p: float = 0.0,
+                      seed: int = 0) -> LMAnswer:
         # no media for now
         iserror = False
         error_reason = ''
@@ -222,7 +228,7 @@ class SecLmModel(HttpBaseModel):
 
         try:
             start = time()
-            res = self._post_query(prompt, temperature, max_tokens, extra_dict)
+            res = self._post_query(prompt, temperature, max_tokens, top_p, seed, extra_dict)
             gen_time = time() - start
             text = res['candidates'][0]['content']['parts'][0]['text']
         except Exception as e:  # pylint: disable=broad-except
@@ -242,14 +248,16 @@ class SecLmModel(HttpBaseModel):
             medias: list[list[Media]],
             temperature: float = 0,
             max_tokens: int = 4096,
-            completions: int = 1
+            completions: int = 1,
+            top_p: float = 0.0,
+            seed: int = 0
     ) -> Generator[Tuple[int, LMAnswer], None, None]:
         # only handle text for now but check the size matches anyway.
         assert len(prompts) == len(medias)
         try:
             batch_responses = self._batch_completion(prompts, medias,
                                                      temperature, max_tokens,
-                                                     completions)
+                                                     completions, top_p, seed)
         except Exception as e:  # pylint: disable=broad-except
             error_message = f'batch generation failed {repr(e)}'
             log.error(error_message)
@@ -266,7 +274,8 @@ class SecLmModel(HttpBaseModel):
 
     def _batch_completion(self, prompts: list[str], medias: list[list[Media]],
                           temperature: float, max_tokens: int,
-                          completions: int) -> list[LMAnswer]:
+                          completions: int, top_p: float = 0.0,
+                          seed: int = 0) -> list[LMAnswer]:
         # only do text for now
         completions = []
         with ThreadPoolExecutor(
@@ -274,7 +283,8 @@ class SecLmModel(HttpBaseModel):
             for i, p in enumerate(prompts):
 
                 future = executor.submit(self.generate_text, p, medias[i],
-                                         temperature, max_tokens, completions)
+                                         temperature, max_tokens, completions,
+                                         top_p, seed)
                 completions.append(future)
 
         return [future.result() for future in completions]

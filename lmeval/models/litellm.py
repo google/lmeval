@@ -119,7 +119,9 @@ class LiteLLMModel(LMModel):
             medias: list[list[Media]],
             temperature: float = 0,
             max_tokens: int = 4096,
-            completions: int = 1
+            completions: int = 1,
+            top_p: float = 0.0,
+            seed: int = 0
     ) -> Generator[Tuple[int, LMAnswer], None, None]:
         model = self.runtime_vars['litellm_version_string']
         assert len(prompts) == len(
@@ -131,7 +133,7 @@ class LiteLLMModel(LMModel):
         try:
             batch_responses = self._batch_completion(model, messages_batch,
                                                      temperature, max_tokens,
-                                                     completions)
+                                                     completions, top_p, seed)
         except:
             batch_responses = [None for _ in prompts]
 
@@ -144,7 +146,9 @@ class LiteLLMModel(LMModel):
                       medias: list[Media] | Media | None = None,
                       temperature: float = 0.0,
                       max_tokens: int = 4096,
-                      completions: int = 1) -> LMAnswer:
+                      completions: int = 1,
+                      top_p: float = 0.0,
+                      seed: int = 0) -> LMAnswer:
         # FIXME: finish multi-completion support
         model = self.runtime_vars['litellm_version_string']
         messages = self._make_messages(prompt, medias)
@@ -154,7 +158,9 @@ class LiteLLMModel(LMModel):
                                     messages=messages,
                                     temperature=temperature,
                                     max_tokens=max_tokens,
-                                    completions=completions)
+                                    completions=completions,
+                                    top_p=top_p,
+                                    seed=seed)
         except Exception as e:
             resp = None
             print("Can't get response from model:", e)
@@ -169,6 +175,8 @@ class LiteLLMModel(LMModel):
         temperature: float = 0.0,
         completions: int = 1,
         max_tokens: int = 4096,
+        top_p: float = 0.0,
+        seed: int = 0,
         **generation_kwargs,
     ) -> LMAnswer:
         # FIXME: finish multi-completion support
@@ -179,6 +187,8 @@ class LiteLLMModel(LMModel):
                 temperature=temperature,
                 max_tokens=max_tokens,
                 completions=completions,
+                top_p=top_p,
+                seed=seed,
                 **generation_kwargs,
             )
             resp = self._completion(**arguments)
@@ -217,6 +227,8 @@ class LiteLLMModel(LMModel):
                        temperature: float = 0.0,
                        completions: int = 1,
                        max_tokens: int = 4096,
+                       top_p: float = 0.0,
+                       seed: int = 0,
                        **generation_kwargs) -> LMAnswer:
         n_completions = grouped_question.metadata.get('n_completions', 1)
         temperature = grouped_question.metadata.get('temperature', None)
@@ -224,8 +236,8 @@ class LiteLLMModel(LMModel):
 
         for question in grouped_question.question_set:
             answer = self.complete(question.messages, temperature,
-                                   n_completions, max_tokens,
-                                   **generation_kwargs)
+                                   n_completions, max_tokens, top_p,
+                                   seed, **generation_kwargs)
             grouped_answers.append(answer)
 
         return self._make_grouped_answer(grouped_answers)
@@ -380,6 +392,8 @@ class LiteLLMModel(LMModel):
                           temperature: float = 0.0,
                           max_tokens: int = 4096,
                           completions: int = 1,
+                          top_p: float = 0.0,
+                          seed: int = 0,
                           **generation_kwargs) -> list[ModelResponse]:
 
         #! we need to isolate the batch completion to allow various implementation to pass additonals parameters
@@ -405,6 +419,8 @@ class LiteLLMModel(LMModel):
             temperature=temperature,
             max_tokens=max_tokens,
             n=completions,
+            top_p=top_p,
+            seed=seed,
             api_key=self.runtime_vars.get('api_key'),
             base_url=self.runtime_vars.get('base_url'),
             max_workers=self.runtime_vars.get('max_workers'),
@@ -418,6 +434,8 @@ class LiteLLMModel(LMModel):
                     temperature: float = 0.0,
                     max_tokens: int = 4096,
                     completions: int = 1,
+                    top_p: float = 0.0,
+                    seed: int = 0,
                     **generation_kwargs) -> ModelResponse:
         if "generation_kwargs" in self.runtime_vars:
             # do not override the generation_kwargs passed as parameter
@@ -448,6 +466,8 @@ class LiteLLMModel(LMModel):
                           temperature=temperature,
                           max_tokens=max_tokens,
                           n=completions,
+                          top_p=top_p,
+                          seed=seed,
                           api_key=self.runtime_vars.get('api_key'),
                           base_url=self.runtime_vars.get('base_url'),
                           extra_headers=self._make_headers(),
