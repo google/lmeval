@@ -37,6 +37,7 @@ class Question(CustomModel):
     # we need it for (de)serialization - automated added by Task.add()
     id: int = Field(default=-1)
     question: str | None = Field(default=None)
+    description: str = Field(default="")
     language: str = Field(default="en")
 
     # answer
@@ -124,4 +125,4 @@ class Question(CustomModel):
     
 class GroupedQuestion(Question):
     metadata: Dict[str, Any]
-    question_set: List[Question] 
+    question_set: List[Question]
