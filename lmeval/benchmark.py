@@ -490,7 +490,8 @@ def load_benchmark(path: str, archive = None, use_tempfile: bool | None = None) 
     media_to_load = []
     for category in benchmark.categories:
         for task in category.tasks:
-            if isinstance(task.scorer.type, ScorerType):
+            scorer_values = set(item.value for item in ScorerType)
+            if task.scorer.type in scorer_values:
                 scorer_name = str(task.scorer.type)
                 stype = ScorerType[scorer_name]
             else:
