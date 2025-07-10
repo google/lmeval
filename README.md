@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-pip install lmeval
+pip install lmeval-framework
 ```
 
 ### Dev setup
