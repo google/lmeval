@@ -42,6 +42,8 @@ class Question(CustomModel):
 
     # answer
     answer: str | None = Field(default=None)
+    # old answer (e.g. in case the anwere (label) changed due to a manual review)
+    answer_old: str | None = Field(default=None)
     # additional answers e.g. for multiple choice questions
     additional_answers: List[str] = Field(default_factory=list)
 
@@ -95,6 +97,7 @@ class Question(CustomModel):
                      ".mp4": [FileType.mp4, Modality.video],
                      ".py": [FileType.python, Modality.code],
                      ".pdf": [FileType.pdf, Modality.document],
+                     ".html": [FileType.html, Modality.code],
                     }
 
         # auto detection if needed
